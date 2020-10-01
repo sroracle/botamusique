@@ -47,6 +47,7 @@ class FileItem(BaseItem):
             self.path = path
             self.title = ""
             self.artist = ""
+            self.album = ""
             self.thumbnail = None
             self.id = hashlib.md5(path.encode()).hexdigest()
             if os.path.exists(self.uri()):
@@ -175,6 +176,7 @@ class FileItem(BaseItem):
         dict['path'] = self.path
         dict['title'] = self.title
         dict['artist'] = self.artist
+        dict['album'] = self.album
         dict['thumbnail'] = self.thumbnail
         return dict
 
