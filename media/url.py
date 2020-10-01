@@ -125,9 +125,9 @@ class URLItem(BaseItem):
             for i in range(attempts):
                 try:
                     info = ydl.extract_info(self.url, download=False)
-                    self.duration = info['duration']
-                    self.title = info['title']
-                    self.keywords = info['title']
+                    self.duration = info.get('duration', 120)
+                    self.title = info.get('title', self.url)
+                    self.keywords = self.title
                     succeed = True
                     return True
                 except youtube_dl.utils.DownloadError:
