@@ -1,9 +1,4 @@
-flask
-youtube-dl
 python-magic
-Pillow
 mutagen
 requests
-packaging
 pymumble>=1.2
-pyradios

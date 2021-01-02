@@ -19,7 +19,6 @@ import logging
 import logging.handlers
 import traceback
 import struct
-from packaging import version
 
 import util
 import command
@@ -33,7 +32,7 @@ from media.cache import MusicCache
 
 
 class MumbleBot:
-    version = 'git'
+    version = 'penis'
 
     def __init__(self, args):
         self.log = logging.getLogger("bot")
@@ -171,17 +170,6 @@ class MumbleBot:
 
         self.redirect_ffmpeg_log = var.config.getboolean('debug', 'redirect_ffmpeg_log', fallback=True)
 
-        if var.config.getboolean("bot", "auto_check_update"):
-            th = threading.Thread(target=self.check_update, name="UpdateThread")
-            th.daemon = True
-            th.start()
-
-        last_startup_version = var.db.get("bot", "version", fallback=None)
-        if not last_startup_version or version.parse(last_startup_version) < version.parse(self.version):
-            var.db.set("bot", "version", self.version)
-            changelog = util.fetch_changelog()
-            self.send_channel_msg(tr("update_successful", version=self.version, changelog=changelog))
-
     # Set the CTRL+C shortcut
     def ctrl_caught(self, signal, frame):
         self.log.info(
@@ -198,18 +186,6 @@ class MumbleBot:
         self.nb_exit += 1
 
         self.exit = True
-
-    def check_update(self):
-        self.log.debug("update: checking for updates...")
-        new_version = util.new_release_version(var.config.get('bot', 'target_version'))
-        if version.parse(new_version) > version.parse(self.version) and var.config.get('bot', 'target_version') == "stable":
-            changelog = util.fetch_changelog()
-            self.log.info(f"update: new version {new_version} found, current installed version {self.version}.")
-            self.log.info(f"update: changelog: {changelog}")
-            changelog = changelog.replace("\n", "<br>")
-            self.send_channel_msg(tr('new_version_found', new_version=new_version, changelog=changelog))
-        else:
-            self.log.debug("update: no new version found.")
 
     def register_command(self, cmd, handle, no_partial_match=False, access_outside_channel=False, admin=False):
         cmds = cmd.split(",")
@@ -694,26 +670,6 @@ class MumbleBot:
         self.pause_at_id = ""
 
 
-def start_web_interface(addr, port):
-    global formatter
-    import interface
-
-    # setup logger
-    werkzeug_logger = logging.getLogger('werkzeug')
-    logfile = util.solve_filepath(var.config.get('webinterface', 'web_logfile'))
-    if logfile:
-        handler = logging.handlers.RotatingFileHandler(logfile, mode='a', maxBytes=10240)  # Rotate after 10KB
-    else:
-        handler = logging.StreamHandler()
-
-    werkzeug_logger.addHandler(handler)
-
-    interface.init_proxy()
-    interface.web.env = 'development'
-    interface.web.secret_key = var.config.get('webinterface', 'flask_secret')
-    interface.web.run(port=port, host=addr)
-
-
 if __name__ == '__main__':
     supported_languages = util.get_supported_language()
 
@@ -867,18 +823,6 @@ if __name__ == '__main__':
     if var.config.getboolean('bot', 'save_playlist', fallback=True):
         var.bot_logger.info("bot: load playlist from previous session")
         var.playlist.load()
-
-    # ============================
-    #   Start the web interface
-    # ============================
-    if var.config.getboolean("webinterface", "enabled"):
-        wi_addr = var.config.get("webinterface", "listening_addr")
-        wi_port = var.config.getint("webinterface", "listening_port")
-        tt = threading.Thread(
-            target=start_web_interface, name="WebThread", args=(wi_addr, wi_port))
-        tt.daemon = True
-        bot_logger.info('Starting web interface on {}:{}'.format(wi_addr, wi_port))
-        tt.start()
 
     # Start the main loop.
     var.bot.loop()

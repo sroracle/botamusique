@@ -11,12 +11,10 @@ import zipfile
 import re
 import subprocess as sp
 import logging
-import youtube_dl
 from importlib import reload
 from sys import platform
 import traceback
 import requests
-from packaging import version
 
 log = logging.getLogger("bot")
 
@@ -97,51 +95,6 @@ def get_user_ban():
     for i in var.db.items("user_ban"):
         res += "<br/>" + i[0]
     return res
-
-
-def new_release_version(target):
-    if target == "testing":
-        r = requests.get("https://packages.azlux.fr/botamusique/testing-version")
-    else:
-        r = requests.get("https://packages.azlux.fr/botamusique/version")
-    v = r.text
-    return v.rstrip()
-
-
-def fetch_changelog():
-    r = requests.get("https://packages.azlux.fr/botamusique/changelog")
-    c = r.text
-    return c
-
-
-def update(current_version):
-    global log
-
-    target = var.config.get('bot', 'target_version')
-    new_version = new_release_version(target)
-    msg = ""
-    if target == "git":
-        msg = "git install, I do nothing"
-
-    elif (target == "stable" and version.parse(new_version) > version.parse(current_version)) or \
-            (target == "testing" and version.parse(new_version) != version.parse(current_version)):
-        log.info('update: new version, start updating...')
-        tp = sp.check_output(['/usr/bin/env', 'bash', 'update.sh', target]).decode()
-        log.debug(tp)
-        log.info('update: update pip libraries dependencies')
-        sp.check_output([var.config.get('bot', 'pip3_path'), 'install', '--upgrade', '-r', 'requirements.txt']).decode()
-        msg = "New version installed, please restart the bot."
-
-    log.info('update: starting update youtube-dl via pip3')
-    tp = sp.check_output([var.config.get('bot', 'pip3_path'), 'install', '--upgrade', 'youtube-dl']).decode()
-    if "Requirement already up-to-date" in tp:
-        msg += "Youtube-dl is up-to-date"
-    else:
-        msg += "Update done: " + tp.split('Successfully installed')[1]
-
-    reload(youtube_dl)
-    msg += "<br/> Youtube-dl reloaded"
-    return msg
 
 
 def user_ban(user):
@@ -329,35 +282,6 @@ def get_url_from_input(string):
         url = match[1].lower() + "://" + match[2].lower() + "/" + match[3]
         return url
     else:
-        return False
-
-
-def youtube_search(query):
-    global log
-
-    try:
-        results = None
-        r = requests.get("https://www.youtube.com/results", params={'search_query': query}, timeout=5)
-        results = re.findall(
-            r"(watch\?v=(?P<videoid>[^\"\r\n]*)\".*?title=\"(?P<title>[^\r\n\"]*)\".*?(?:user|channel)[^>]*"
-            r">(?P<uploader>[^<\"\n\r]*)<)|(\"videoId\":\"(?P<videoid2>[^\"]*)\").*?\"title\":{\"runs\":\[{"
-            r"\"text\":\"(?P<title2>[^\"]*)\".*?\"ownerText\":{\"runs\":\[{\"text\":\"(?P<uploader2>[^\"]*)"
-            r"\"", r.text)  # (catch1, id1, title1, uploader1, catch2, id2, title2, uploader2,)
-
-        if len(results) > 0:
-            finalResults = None
-            finalResults = []
-            if results[0][0] != "":
-                for entry in results:
-                    finalResults.append([entry[1], entry[2], entry[3]])
-            else:
-                for entry in results:
-                    finalResults.append([entry[5], entry[6], entry[7]])
-            return finalResults
-
-    except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError, requests.exceptions.Timeout):
-        error_traceback = traceback.format_exc().split("During")[0]
-        log.error("util: youtube query failed with error:\n %s" % error_traceback)
         return False
 
 

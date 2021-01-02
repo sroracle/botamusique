@@ -6,8 +6,6 @@ import threading
 
 from media.item import item_builders, item_id_generators, dict_to_item
 import media.file
-import media.url
-import media.url_from_playlist
 import media.radio
 from database import MusicDatabase, Condition
 import variables as var

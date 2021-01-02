@@ -1,10 +1,7 @@
 import os
 import re
-from io import BytesIO
-import base64
 import hashlib
 import mutagen
-from PIL import Image
 
 import util
 import variables as var
@@ -18,7 +15,6 @@ type : file
     title
     artist
     duration
-    thumbnail
     user
 '''
 
@@ -48,7 +44,6 @@ class FileItem(BaseItem):
             self.title = ""
             self.artist = ""
             self.album = ""
-            self.thumbnail = None
             self.id = hashlib.md5(path.encode()).hexdigest()
             if os.path.exists(self.uri()):
                 self._get_info_from_tag()
@@ -58,7 +53,6 @@ class FileItem(BaseItem):
         else:
             super().__init__(from_dict)
             self.artist = from_dict['artist']
-            self.thumbnail = from_dict['thumbnail']
             try:
                 self.validate()
             except ValidationFailedError:
@@ -92,11 +86,6 @@ class FileItem(BaseItem):
         ext = match[2]
 
         try:
-            im = None
-            path_thumbnail = file_no_ext + ".jpg"
-            if os.path.isfile(path_thumbnail):
-                im = Image.open(path_thumbnail)
-
             if ext == "mp3":
                 # title: TIT2
                 # artist: TPE1, TPE2
@@ -107,10 +96,6 @@ class FileItem(BaseItem):
                     self.title = tags['TIT2'].text[0]
                 if 'TPE1' in tags:  # artist
                     self.artist = tags['TPE1'].text[0]
-
-                if im is None:
-                    if "APIC:" in tags:
-                        im = Image.open(BytesIO(tags["APIC:"].data))
 
             elif ext == "m4a" or ext == "m4b" or ext == "mp4" or ext == "m4p":
                 # title: ©nam (\xa9nam)
@@ -123,52 +108,23 @@ class FileItem(BaseItem):
                 if '©ART' in tags:  # artist
                     self.artist = tags['©ART'][0]
 
-                if im is None:
-                    if "covr" in tags:
-                        im = Image.open(BytesIO(tags["covr"][0]))
-
             elif ext == "opus":
                 # title: 'title'
                 # artist: 'artist'
                 # album: 'album'
-                # cover artwork: 'metadata_block_picture', and then:
-                ##                          |
-                ##                          |
-                ##                          v
-                ##            Decode string as base64 binary
-                ##                          |
-                ##                          v
-                ##      Open that binary as a mutagen.flac.Picture
-                ##                          |
-                ##                          v
-                ##              Extract binary image data
                 tags = mutagen.File(self.uri())
                 if 'title' in tags:
                     self.title = tags['title'][0]
                 if 'artist' in tags:
                     self.artist = tags['artist'][0]
+                if 'album' in tags:
+                    self.album = tags['album'][0]
 
-                if im is None:
-                    if 'metadata_block_picture' in tags:
-                        pic_as_base64 = tags['metadata_block_picture'][0]
-                        as_flac_picture = mutagen.flac.Picture(base64.b64decode(pic_as_base64))
-                        im = Image.open(BytesIO(as_flac_picture.data))
-
-            if im:
-                self.thumbnail = self._prepare_thumbnail(im)
         except:
             pass
 
         if not self.title:
             self.title = os.path.basename(file_no_ext)
-
-    @staticmethod
-    def _prepare_thumbnail(im):
-        im.thumbnail((100, 100), Image.ANTIALIAS)
-        buffer = BytesIO()
-        im = im.convert('RGB')
-        im.save(buffer, format="JPEG")
-        return base64.b64encode(buffer.getvalue()).decode('utf-8')
 
     def to_dict(self):
         dict = super().to_dict()
@@ -177,7 +133,6 @@ class FileItem(BaseItem):
         dict['title'] = self.title
         dict['artist'] = self.artist
         dict['album'] = self.album
-        dict['thumbnail'] = self.thumbnail
         return dict
 
     def format_debug_string(self):
@@ -195,10 +150,6 @@ class FileItem(BaseItem):
 
     def format_current_playing(self, user):
         display = tr("now_playing", item=self.format_song_string(user))
-        if self.thumbnail:
-            thumbnail_html = '<img width="80" src="data:image/jpge;base64,' + \
-                             self.thumbnail + '"/>'
-            display += "<br />" + thumbnail_html
 
         return display
 

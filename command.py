@@ -8,16 +8,13 @@ import pymumble_py3 as pymumble
 
 from constants import tr_cli as tr
 from constants import commands
-import interface
 import media.system
 import util
 import variables as var
-from pyradios import RadioBrowser
 from database import SettingsDatabase, MusicDatabase, Condition
 from media.item import item_id_generators, dict_to_item, dicts_to_items
 from media.cache import get_cached_wrapper_from_scrap, get_cached_wrapper_by_id, get_cached_wrappers_by_tags, \
     get_cached_wrapper, get_cached_wrappers, get_cached_wrapper_from_dict, get_cached_wrappers_from_dicts
-from media.url_from_playlist import get_playlist_info
 
 log = logging.getLogger("bot")
 
@@ -26,26 +23,16 @@ def register_all_commands(bot):
     bot.register_command(commands('joinme'), cmd_joinme, access_outside_channel=True)
     bot.register_command(commands('user_ban'), cmd_user_ban, no_partial_match=True, admin=True)
     bot.register_command(commands('user_unban'), cmd_user_unban, no_partial_match=True, admin=True)
-    bot.register_command(commands('url_ban_list'), cmd_url_ban_list, no_partial_match=True, admin=True)
-    bot.register_command(commands('url_ban'), cmd_url_ban, no_partial_match=True, admin=True)
-    bot.register_command(commands('url_unban'), cmd_url_unban, no_partial_match=True, admin=True)
     bot.register_command(commands('play'), cmd_play)
     bot.register_command(commands('pause'), cmd_pause)
     bot.register_command(commands('play_file'), cmd_play_file)
     bot.register_command(commands('play_file_match'), cmd_play_file_match)
-    bot.register_command(commands('play_url'), cmd_play_url)
-    bot.register_command(commands('play_playlist'), cmd_play_playlist)
     bot.register_command(commands('play_radio'), cmd_play_radio)
     bot.register_command(commands('play_tag'), cmd_play_tags)
-    bot.register_command(commands('rb_query'), cmd_rb_query)
-    bot.register_command(commands('rb_play'), cmd_rb_play)
-    bot.register_command(commands('yt_search'), cmd_yt_search)
-    bot.register_command(commands('yt_play'), cmd_yt_play)
     bot.register_command(commands('help'), cmd_help, no_partial_match=False, access_outside_channel=True)
     bot.register_command(commands('stop'), cmd_stop)
     bot.register_command(commands('clear'), cmd_clear)
     bot.register_command(commands('kill'), cmd_kill, admin=True)
-    bot.register_command(commands('update'), cmd_update, no_partial_match=True, admin=True)
     bot.register_command(commands('stop_and_getout'), cmd_stop_and_getout)
     bot.register_command(commands('volume'), cmd_volume)
     bot.register_command(commands('ducking'), cmd_ducking)
@@ -65,18 +52,7 @@ def register_all_commands(bot):
     bot.register_command(commands('find_tagged'), cmd_find_tagged)
     bot.register_command(commands('search'), cmd_search_library)
     bot.register_command(commands('add_from_shortlist'), cmd_shortlist)
-    bot.register_command(commands('delete_from_library'), cmd_delete_from_library)
-    bot.register_command(commands('drop_database'), cmd_drop_database, no_partial_match=True, admin=True)
     bot.register_command(commands('rescan'), cmd_refresh_cache, no_partial_match=True)
-    bot.register_command(commands('requests_webinterface_access'), cmd_web_access)
-    bot.register_command(commands('add_webinterface_user'), cmd_web_user_add, admin=True)
-    bot.register_command(commands('remove_webinterface_user'), cmd_web_user_remove, admin=True)
-    bot.register_command(commands('list_webinterface_user'), cmd_web_user_list, admin=True)
-    bot.register_command(commands('change_user_password'), cmd_user_password, no_partial_match=True)
-    # Just for debug use
-    bot.register_command('rtrms', cmd_real_time_rms, True)
-    # bot.register_command('loop', cmd_loop_state, True)
-    # bot.register_command('item', cmd_item, True)
 
 
 def send_multi_lines(bot, lines, text, linebreak="<br />"):
@@ -155,36 +131,6 @@ def cmd_user_unban(bot, user, text, command, parameter):
 
     if parameter:
         bot.mumble.users[text.actor].send_text_message(util.user_unban(parameter))
-
-
-def cmd_url_ban(bot, user, text, command, parameter):
-    global log
-
-    if parameter:
-        bot.mumble.users[text.actor].send_text_message(util.url_ban(util.get_url_from_input(parameter)))
-
-        id = item_id_generators['url'](url=parameter)
-        var.cache.free_and_delete(id)
-        var.playlist.remove_by_id(id)
-    else:
-        if var.playlist.current_item() and var.playlist.current_item().type == 'url':
-            item = var.playlist.current_item().item()
-            bot.mumble.users[text.actor].send_text_message(util.url_ban(util.get_url_from_input(item.url)))
-            var.cache.free_and_delete(item.id)
-            var.playlist.remove_by_id(item.id)
-        else:
-            bot.send_msg(tr('bad_parameter', command=command), text)
-
-
-def cmd_url_ban_list(bot, user, text, command, parameter):
-    bot.mumble.users[text.actor].send_text_message(util.get_url_ban())
-
-
-def cmd_url_unban(bot, user, text, command, parameter):
-    global log
-
-    if parameter:
-        bot.mumble.users[text.actor].send_text_message(util.url_unban(util.get_url_from_input(parameter)))
 
 
 def cmd_play(bot, user, text, command, parameter):
@@ -324,43 +270,6 @@ def cmd_play_file_match(bot, user, text, command, parameter, do_not_refresh_cach
         bot.send_msg(tr('bad_parameter', command=command), text)
 
 
-def cmd_play_url(bot, user, text, command, parameter):
-    global log
-
-    url = util.get_url_from_input(parameter)
-    if url:
-        music_wrapper = get_cached_wrapper_from_scrap(type='url', url=url, user=user)
-        var.playlist.append(music_wrapper)
-
-        log.info("cmd: add to playlist: " + music_wrapper.format_debug_string())
-        send_item_added_message(bot, music_wrapper, len(var.playlist) - 1, text)
-        if len(var.playlist) == 2:
-            # If I am the second item on the playlist. (I am the next one!)
-            bot.async_download_next()
-    else:
-        bot.send_msg(tr('bad_parameter', command=command), text)
-
-
-def cmd_play_playlist(bot, user, text, command, parameter):
-    global log
-
-    offset = 0  # if you want to start the playlist at a specific index
-    try:
-        offset = int(parameter.split(" ")[-1])
-    except ValueError:
-        pass
-
-    url = util.get_url_from_input(parameter)
-    log.debug(f"cmd: fetching media info from playlist url {url}")
-    items = get_playlist_info(url=url, start_index=offset, user=user)
-    if len(items) > 0:
-        items = var.playlist.extend(list(map(lambda item: get_cached_wrapper_from_scrap(**item), items)))
-        for music in items:
-            log.info("cmd: add to playlist: " + music.format_debug_string())
-    else:
-        bot.send_msg(tr("playlist_fetching_failed"), text)
-
-
 def cmd_play_radio(bot, user, text, command, parameter):
     global log
 
@@ -386,165 +295,6 @@ def cmd_play_radio(bot, user, text, command, parameter):
             send_item_added_message(bot, music_wrapper, len(var.playlist) - 1, text)
         else:
             bot.send_msg(tr('bad_url'), text)
-
-
-def cmd_rb_query(bot, user, text, command, parameter):
-    global log
-
-    log.info('cmd: Querying radio stations')
-    if not parameter:
-        log.debug('rbquery without parameter')
-        msg = tr('rb_query_empty')
-        bot.send_msg(msg, text)
-    else:
-        log.debug('cmd: Found query parameter: ' + parameter)
-        rb = RadioBrowser()
-        rb_stations = rb.search(name=parameter, name_exact=False)
-        msg = tr('rb_query_result')
-        msg += '\n<table><tr><th>!rbplay ID</th><th>Station Name</th><th>Genre</th><th>Codec/Bitrate</th><th>Country</th></tr>'
-        if not rb_stations:
-            log.debug(f"cmd: No matches found for rbquery {parameter}")
-            bot.send_msg(f"Radio-Browser found no matches for {parameter}", text)
-        else:
-            for s in rb_stations:
-                station_id = s['stationuuid']
-                station_name = s['name']
-                country = s['countrycode']
-                codec = s['codec']
-                bitrate = s['bitrate']
-                genre = s['tags']
-                msg += f"<tr><td>{station_id}</td><td>{station_name}</td><td>{genre}</td><td>{codec}/{bitrate}</td><td>{country}</td></tr>"
-            msg += '</table>'
-            # Full message as html table
-            if len(msg) <= 5000:
-                bot.send_msg(msg, text)
-            # Shorten message if message too long (stage I)
-            else:
-                log.debug('Result too long stage I')
-                msg = tr('rb_query_result') + ' (shortened L1)'
-                msg += '\n<table><tr><th>!rbplay ID</th><th>Station Name</th></tr>'
-                for s in rb_stations:
-                    station_id = s['stationuuid']
-                    station_name = s['name']
-                    msg += f'<tr><td>{station_id}</td><td>{station_name}</td>'
-                msg += '</table>'
-                if len(msg) <= 5000:
-                    bot.send_msg(msg, text)
-                # Shorten message if message too long (stage II)
-                else:
-                    log.debug('Result too long stage II')
-                    msg = tr('rb_query_result') + ' (shortened L2)'
-                    msg += '!rbplay ID - Station Name'
-                    for s in rb_stations:
-                        station_id = s['stationuuid']
-                        station_name = s['name'][:12]
-                        msg += f'{station_id} - {station_name}'
-                    if len(msg) <= 5000:
-                        bot.send_msg(msg, text)
-                    # Message still too long
-                    else:
-                        bot.send_msg('Query result too long to post (> 5000 characters), please try another query.', text)
-
-
-def cmd_rb_play(bot, user, text, command, parameter):
-    global log
-
-    log.debug('cmd: Play a station by ID')
-    if not parameter:
-        log.debug('rbplay without parameter')
-        msg = tr('rb_play_empty')
-        bot.send_msg(msg, text)
-    else:
-        log.debug('cmd: Retreiving url for station ID ' + parameter)
-        rb = RadioBrowser()
-        rstation = rb.station_by_uuid(parameter)
-        stationname = rstation[0]['name']
-        country = rstation[0]['countrycode']
-        codec = rstation[0]['codec']
-        bitrate = rstation[0]['bitrate']
-        genre = rstation[0]['tags']
-        homepage = rstation[0]['homepage']
-        url = rstation[0]['url']
-        msg = 'Radio station added to playlist:'
-
-        msg += '<table><tr><th>ID</th><th>Station Name</th><th>Genre</th><th>Codec/Bitrate</th><th>Country</th><th>Homepage</th></tr>' + \
-               f"<tr><td>{parameter}</td><td>{stationname}</td><td>{genre}</td><td>{codec}/{bitrate}</td><td>{country}</td><td>{homepage}</td></tr></table>"
-        log.debug(f'cmd: Added station to playlist {stationname}')
-        bot.send_msg(msg, text)
-        if url != "-1":
-            log.info('cmd: Found url: ' + url)
-            music_wrapper = get_cached_wrapper_from_scrap(type='radio', url=url, name=stationname, user=user)
-            var.playlist.append(music_wrapper)
-            log.info("cmd: add to playlist: " + music_wrapper.format_debug_string())
-            bot.async_download_next()
-        else:
-            log.info('cmd: No playable url found.')
-            msg += "No playable url found for this station, please try another station."
-            bot.send_msg(msg, text)
-
-
-yt_last_result = []
-yt_last_page = 0  # TODO: if we keep adding global variables, we need to consider sealing all commands up into classes.
-
-
-def cmd_yt_search(bot, user, text, command, parameter):
-    global log, yt_last_result, yt_last_page, song_shortlist
-    item_per_page = 5
-
-    if parameter:
-        # if next page
-        if parameter.startswith("-n"):
-            yt_last_page += 1
-            if len(yt_last_result) > yt_last_page * item_per_page:
-                song_shortlist = [{'type': 'url',
-                                   'url': "https://www.youtube.com/watch?v=" + result[0],
-                                   'title': result[1]
-                                   } for result in yt_last_result[yt_last_page * item_per_page: item_per_page]]
-                msg = _yt_format_result(yt_last_result, yt_last_page * item_per_page, item_per_page)
-                bot.send_msg(tr('yt_result', result_table=msg), text)
-            else:
-                bot.send_msg(tr('yt_no_more'), text)
-
-        # if query
-        else:
-            results = util.youtube_search(parameter)
-            if results:
-                yt_last_result = results
-                yt_last_page = 0
-                song_shortlist = [{'type': 'url', 'url': "https://www.youtube.com/watch?v=" + result[0]}
-                                  for result in results[0: item_per_page]]
-                msg = _yt_format_result(results, 0, item_per_page)
-                bot.send_msg(tr('yt_result', result_table=msg), text)
-            else:
-                bot.send_msg(tr('yt_query_error'), text)
-    else:
-        bot.send_msg(tr('bad_parameter', command=command), text)
-
-
-def _yt_format_result(results, start, count):
-    msg = '<table><tr><th width="10%">Index</th><th>Title</th><th width="20%">Uploader</th></tr>'
-    for index, item in enumerate(results[start:start + count]):
-        msg += '<tr><td>{index:d}</td><td>{title}</td><td>{uploader}</td></tr>'.format(
-            index=index + 1, title=item[1], uploader=item[2])
-    msg += '</table>'
-
-    return msg
-
-
-def cmd_yt_play(bot, user, text, command, parameter):
-    global log, yt_last_result, yt_last_page
-
-    if parameter:
-        results = util.youtube_search(parameter)
-        if results:
-            yt_last_result = results
-            yt_last_page = 0
-            url = "https://www.youtube.com/watch?v=" + yt_last_result[0][0]
-            cmd_play_url(bot, user, text, command, url)
-        else:
-            bot.send_msg(tr('yt_query_error'), text)
-    else:
-        bot.send_msg(tr('bad_parameter', command=command), text)
 
 
 def cmd_help(bot, user, text, command, parameter):
@@ -577,19 +327,6 @@ def cmd_kill(bot, user, text, command, parameter):
 
     bot.pause()
     bot.exit = True
-
-
-def cmd_update(bot, user, text, command, parameter):
-    global log
-
-    if bot.is_admin(user):
-        bot.mumble.users[text.actor].send_text_message(
-            tr('start_updating'))
-        msg = util.update(bot.version)
-        bot.mumble.users[text.actor].send_text_message(msg)
-    else:
-        bot.mumble.users[text.actor].send_text_message(
-            tr('not_admin'))
 
 
 def cmd_stop_and_getout(bot, user, text, command, parameter):
@@ -1083,67 +820,6 @@ def cmd_shortlist(bot, user, text, command, parameter):
     bot.send_msg(tr('bad_parameter', command=command), text)
 
 
-def cmd_delete_from_library(bot, user, text, command, parameter):
-    global song_shortlist, log
-    try:
-        indexes = [int(i) for i in parameter.split(" ")]
-    except ValueError:
-        bot.send_msg(tr('bad_parameter', command=command), text)
-        return
-
-    if len(indexes) > 1:
-        msgs = [tr('multiple_file_added') + "<ul>"]
-        count = 0
-        for index in indexes:
-            if 1 <= index <= len(song_shortlist):
-                music_dict = song_shortlist[index - 1]
-                if 'id' in music_dict:
-                    music_wrapper = get_cached_wrapper_by_id(music_dict['id'], user)
-                    log.info("cmd: remove from library: " + music_wrapper.format_debug_string())
-                    msgs.append("<li>[{}] <b>{}</b></li>".format(music_wrapper.item().type, music_wrapper.item().title))
-                    var.playlist.remove_by_id(music_dict['id'])
-                    var.cache.free_and_delete(music_dict['id'])
-                    count += 1
-            else:
-                bot.send_msg(tr('bad_parameter', command=command), text)
-                return
-
-        if count == 0:
-            bot.send_msg(tr('bad_parameter', command=command), text)
-            return
-
-        msgs.append("</ul>")
-        send_multi_lines_in_channel(bot, msgs, "")
-        return
-    elif len(indexes) == 1:
-        index = indexes[0]
-        if 1 <= index <= len(song_shortlist):
-            music_dict = song_shortlist[index - 1]
-            if 'id' in music_dict:
-                music_wrapper = get_cached_wrapper_by_id(music_dict['id'], user)
-                bot.send_msg(tr('file_deleted', item=music_wrapper.format_song_string()), text)
-                log.info("cmd: remove from library: " + music_wrapper.format_debug_string())
-                var.playlist.remove_by_id(music_dict['id'])
-                var.cache.free_and_delete(music_dict['id'])
-                return
-
-    bot.send_msg(tr('bad_parameter', command=command), text)
-
-
-def cmd_drop_database(bot, user, text, command, parameter):
-    global log
-
-    if bot.is_admin(user):
-        var.db.drop_table()
-        var.db = SettingsDatabase(var.settings_db_path)
-        var.music_db.drop_table()
-        var.music_db = MusicDatabase(var.settings_db_path)
-        log.info("command: database dropped.")
-        bot.send_msg(tr('database_dropped'), text)
-    else:
-        bot.mumble.users[text.actor].send_text_message(tr('not_admin'))
-
-
 def cmd_refresh_cache(bot, user, text, command, parameter):
     global log
     if bot.is_admin(user):
@@ -1152,100 +828,3 @@ def cmd_refresh_cache(bot, user, text, command, parameter):
         bot.send_msg(tr('cache_refreshed'), text)
     else:
         bot.mumble.users[text.actor].send_text_message(tr('not_admin'))
-
-
-def cmd_web_access(bot, user, text, command, parameter):
-    auth_method = var.config.get("webinterface", "auth_method")
-
-    if auth_method == 'token':
-        interface.banned_ip = []
-        interface.bad_access_count = {}
-
-        user_info = var.db.get("user", user, fallback='{}')
-        user_dict = json.loads(user_info)
-        if 'token' in user_dict:
-            var.db.remove_option("web_token", user_dict['token'])
-
-        token = secrets.token_urlsafe(5)
-        user_dict['token'] = token
-        user_dict['token_created'] = str(datetime.datetime.now())
-        user_dict['last_ip'] = ''
-        var.db.set("web_token", token, user)
-        var.db.set("user", user, json.dumps(user_dict))
-
-        access_address = var.config.get("webinterface", "access_address") + "/?token=" + token
-    else:
-        access_address = var.config.get("webinterface", "access_address")
-
-    bot.send_msg(tr('webpage_address', address=access_address), text)
-
-
-def cmd_user_password(bot, user, text, command, parameter):
-    if not parameter:
-        bot.send_msg(tr('bad_parameter', command=command), text)
-        return
-
-    user_info = var.db.get("user", user, fallback='{}')
-    user_dict = json.loads(user_info)
-    user_dict['password'], user_dict['salt'] = util.get_salted_password_hash(parameter)
-
-    var.db.set("user", user, json.dumps(user_dict))
-
-    bot.send_msg(tr('user_password_set'), text)
-
-
-def cmd_web_user_add(bot, user, text, command, parameter):
-    if not parameter:
-        bot.send_msg(tr('bad_parameter', command=command), text)
-        return
-
-    auth_method = var.config.get("webinterface", "auth_method")
-
-    if auth_method == 'password':
-        web_users = json.loads(var.db.get("privilege", "web_access", fallback='[]'))
-        if parameter not in web_users:
-            web_users.append(parameter)
-        var.db.set("privilege", "web_access", json.dumps(web_users))
-        bot.send_msg(tr('web_user_list', users=", ".join(web_users)), text)
-    else:
-        bot.send_msg(tr('command_disabled', command=command), text)
-
-
-def cmd_web_user_remove(bot, user, text, command, parameter):
-    if not parameter:
-        bot.send_msg(tr('bad_parameter', command=command), text)
-        return
-
-    auth_method = var.config.get("webinterface", "auth_method")
-
-    if auth_method == 'password':
-        web_users = json.loads(var.db.get("privilege", "web_access", fallback='[]'))
-        if parameter in web_users:
-            web_users.remove(parameter)
-        var.db.set("privilege", "web_access", json.dumps(web_users))
-        bot.send_msg(tr('web_user_list', users=", ".join(web_users)), text)
-    else:
-        bot.send_msg(tr('command_disabled', command=command), text)
-
-
-def cmd_web_user_list(bot, user, text, command, parameter):
-    auth_method = var.config.get("webinterface", "auth_method")
-
-    if auth_method == 'password':
-        web_users = json.loads(var.db.get("privilege", "web_access", fallback='[]'))
-        bot.send_msg(tr('web_user_list', users=", ".join(web_users)), text)
-    else:
-        bot.send_msg(tr('command_disabled', command=command), text)
-
-
-# Just for debug use
-def cmd_real_time_rms(bot, user, text, command, parameter):
-    bot._display_rms = not bot._display_rms
-
-
-def cmd_loop_state(bot, user, text, command, parameter):
-    print(bot._loop_status)
-
-
-def cmd_item(bot, user, text, command, parameter):
-    var.playlist._debug_print()
