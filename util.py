@@ -1,20 +1,16 @@
 #!/usr/bin/python3
 # coding=utf-8
 
-import hashlib
 import magic
 import os
 import io
 import sys
 import variables as var
-import zipfile
 import re
 import subprocess as sp
 import logging
 from importlib import reload
-from sys import platform
-import traceback
-import requests
+
 
 log = logging.getLogger("bot")
 
@@ -57,39 +53,6 @@ def get_recursive_file_list_sorted(path):
     return filelist
 
 
-# - zips files
-# - returns the absolute path of the created zip file
-# - zip file will be in the applications tmp folder (according to configuration)
-# - format of the filename itself = prefix_hash.zip
-#       - prefix can be controlled by the caller
-#       - hash is a sha1 of the string representation of the directories' contents (which are
-#           zipped)
-def zipdir(files, zipname_prefix=None):
-    zipname = var.tmp_folder
-    if zipname_prefix and '../' not in zipname_prefix:
-        zipname += zipname_prefix.strip().replace('/', '_') + '_'
-
-    _hash = hashlib.sha1(str(files).encode()).hexdigest()
-    zipname += _hash + '.zip'
-
-    if os.path.exists(zipname):
-        return zipname
-
-    zipf = zipfile.ZipFile(zipname, 'w', zipfile.ZIP_DEFLATED)
-
-    for file_to_add in files:
-        if not os.access(file_to_add, os.R_OK):
-            continue
-        if file_to_add in var.config.get('bot', 'ignored_files'):
-            continue
-
-        add_file_as = os.path.basename(file_to_add)
-        zipf.write(file_to_add, add_file_as)
-
-    zipf.close()
-    return zipname
-
-
 def get_user_ban():
     res = "List of ban hash"
     for i in var.db.items("user_ban"):
@@ -107,163 +70,6 @@ def user_unban(user):
     var.db.remove_option("user_ban", user)
     res = "Done"
     return res
-
-
-def get_url_ban():
-    res = "List of ban:"
-    for i in var.db.items("url_ban"):
-        res += "<br/>" + i[0]
-    return res
-
-
-def url_ban(url):
-    var.db.set("url_ban", url, None)
-    res = "url " + url + " banned"
-    return res
-
-
-def url_unban(url):
-    var.db.remove_option("url_ban", url)
-    res = "Done"
-    return res
-
-
-def pipe_no_wait():
-    """ Generate a non-block pipe used to fetch the STDERR of ffmpeg.
-    """
-
-    if platform == "linux" or platform == "linux2" or platform == "darwin" or platform.startswith("openbsd"):
-        import fcntl
-        import os
-
-        pipe_rd = 0
-        pipe_wd = 0
-
-        if hasattr(os, "pipe2"):
-            pipe_rd, pipe_wd = os.pipe2(os.O_NONBLOCK)
-        else:
-            pipe_rd, pipe_wd = os.pipe()
-
-            try:
-                fl = fcntl.fcntl(pipe_rd, fcntl.F_GETFL)
-                fcntl.fcntl(pipe_rd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
-            except:
-                print(sys.exc_info()[1])
-                return None, None
-        return pipe_rd, pipe_wd
-
-    elif platform == "win32":
-        # https://stackoverflow.com/questions/34504970/non-blocking-read-on-os-pipe-on-windows
-        import msvcrt
-        import os
-
-        from ctypes import windll, byref, wintypes, WinError, POINTER
-        from ctypes.wintypes import HANDLE, DWORD, BOOL
-
-        pipe_rd, pipe_wd = os.pipe()
-
-        LPDWORD = POINTER(DWORD)
-        PIPE_NOWAIT = wintypes.DWORD(0x00000001)
-        ERROR_NO_DATA = 232
-
-        SetNamedPipeHandleState = windll.kernel32.SetNamedPipeHandleState
-        SetNamedPipeHandleState.argtypes = [HANDLE, LPDWORD, LPDWORD, LPDWORD]
-        SetNamedPipeHandleState.restype = BOOL
-
-        h = msvcrt.get_osfhandle(pipe_rd)
-
-        res = windll.kernel32.SetNamedPipeHandleState(h, byref(PIPE_NOWAIT), None, None)
-        if res == 0:
-            print(WinError())
-            return None, None
-        return pipe_rd, pipe_wd
-
-
-class Dir(object):
-    def __init__(self, path):
-        self.name = os.path.basename(path.strip('/'))
-        self.fullpath = path
-        self.subdirs = {}
-        self.files = []
-
-    def add_file(self, file):
-        if file.startswith(self.name + '/'):
-            file = file.replace(self.name + '/', '', 1)
-
-        if '/' in file:
-            # This file is in a subdir
-            subdir = file.split('/')[0]
-            if subdir in self.subdirs:
-                self.subdirs[subdir].add_file(file)
-            else:
-                self.subdirs[subdir] = Dir(os.path.join(self.fullpath, subdir))
-                self.subdirs[subdir].add_file(file)
-        else:
-            self.files.append(file)
-        return True
-
-    def get_subdirs(self, path=None):
-        subdirs = []
-        if path and path != '' and path != './':
-            subdir = path.split('/')[0]
-            if subdir in self.subdirs:
-                searchpath = '/'.join(path.split('/')[1::])
-                subdirs = self.subdirs[subdir].get_subdirs(searchpath)
-                subdirs = list(map(lambda subsubdir: os.path.join(subdir, subsubdir), subdirs))
-        else:
-            subdirs = self.subdirs
-
-        return subdirs
-
-    def get_subdirs_recursively(self, path=None):
-        subdirs = []
-        if path and path != '' and path != './':
-            subdir = path.split('/')[0]
-            if subdir in self.subdirs:
-                searchpath = '/'.join(path.split('/')[1::])
-                subdirs = self.subdirs[subdir].get_subdirs_recursively(searchpath)
-        else:
-            subdirs = list(self.subdirs.keys())
-
-            for key, val in self.subdirs.items():
-                subdirs.extend(map(lambda subdir: key + '/' + subdir, val.get_subdirs_recursively()))
-
-        subdirs.sort()
-        return subdirs
-
-    def get_files(self, path=None):
-        files = []
-        if path and path != '' and path != './':
-            subdir = path.split('/')[0]
-            if subdir in self.subdirs:
-                searchpath = '/'.join(path.split('/')[1::])
-                files = self.subdirs[subdir].get_files(searchpath)
-        else:
-            files = self.files
-
-        return files
-
-    def get_files_recursively(self, path=None):
-        files = []
-        if path and path != '' and path != './':
-            subdir = path.split('/')[0]
-            if subdir in self.subdirs:
-                searchpath = '/'.join(path.split('/')[1::])
-                files = self.subdirs[subdir].get_files_recursively(searchpath)
-        else:
-            files = self.files
-
-            for key, val in self.subdirs.items():
-                files.extend(map(lambda file: key + '/' + file, val.get_files_recursively()))
-
-        return files
-
-    def render_text(self, ident=0):
-        print('{}{}/'.format(' ' * (ident * 4), self.name))
-        for key, val in self.subdirs.items():
-            val.render_text(ident + 1)
-        for file in self.files:
-            print('{}{}'.format(' ' * (ident + 1) * 4, file))
 
 
 # Parse the html from the message to get the URL
@@ -324,20 +130,6 @@ def parse_file_size(human):
             return int(num * units[unit])
 
     raise ValueError("Invalid file size given.")
-
-
-def get_salted_password_hash(password):
-    salt = os.urandom(10)
-    hashed = hashlib.pbkdf2_hmac('sha1', password.encode("utf-8"), salt, 100000)
-
-    return hashed.hex(), salt.hex()
-
-
-def verify_password(password, salted_hash, salt):
-    hashed = hashlib.pbkdf2_hmac('sha1', password.encode("utf-8"), bytearray.fromhex(salt), 100000)
-    if hashed.hex() == salted_hash:
-        return True
-    return False
 
 
 def get_supported_language():

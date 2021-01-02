@@ -47,8 +47,6 @@ class MumbleBot:
             self.channel = var.config.get("server", "channel", fallback=None)
 
         var.user = args.user
-        var.is_proxified = var.config.getboolean(
-            "webinterface", "is_web_proxified")
 
         # Flags to indicate the bot is exiting (Ctrl-C, or !kill)
         self.exit = False
@@ -166,8 +164,6 @@ class MumbleBot:
         self._loop_status = 'Idle'
         self._display_rms = False
         self._max_rms = 0
-
-        self.redirect_ffmpeg_log = var.config.getboolean('debug', 'redirect_ffmpeg_log', fallback=True)
 
     # Set the CTRL+C shortcut
     def ctrl_caught(self, signal, frame):
@@ -368,13 +364,7 @@ class MumbleBot:
                    uri, '-ss', f"{start_from:f}", '-ac', str(channels), '-f', 's16le', '-ar', '48000', '-')
         self.log.debug("bot: execute ffmpeg command: " + " ".join(command))
 
-        # The ffmpeg process is a thread
-        # prepare pipe for catching stderr of ffmpeg
-        if self.redirect_ffmpeg_log:
-            pipe_rd, pipe_wd = util.pipe_no_wait()  # Let the pipe work in non-blocking mode
-            self.thread_stderr = os.fdopen(pipe_rd)
-        else:
-            pipe_rd, pipe_wd = None, None
+        pipe_rd, pipe_wd = None, None
 
         self.thread = sp.Popen(command, stdout=sp.PIPE, stderr=pipe_wd, bufsize=self.pcm_buffer_size)
 
@@ -448,14 +438,6 @@ class MumbleBot:
 
                 raw_music = self.thread.stdout.read(self.pcm_buffer_size)
                 self.read_pcm_size += self.pcm_buffer_size
-
-                if self.redirect_ffmpeg_log:
-                    try:
-                        self.last_ffmpeg_err = self.thread_stderr.readline()
-                        if self.last_ffmpeg_err:
-                            self.log.debug("ffmpeg: " + self.last_ffmpeg_err.strip("\n"))
-                    except:
-                        pass
 
                 if raw_music:
                     # Adjust the volume and send it to mumble
