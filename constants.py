@@ -25,17 +25,6 @@ def tr_cli(option, *argv, **kwargs):
     return _tr(string, *argv, **kwargs)
 
 
-def tr_web(option, *argv, **kwargs):
-    try:
-        if option in lang_dict['web'] and lang_dict['web'][option]:
-            string = lang_dict['web'][option]
-        else:
-            string = default_lang_dict['web'][option]
-    except KeyError:
-        raise KeyError("Missed strings in language file: '{string}'. ".format(string=option))
-    return _tr(string, *argv, **kwargs)
-
-
 def _tr(string, *argv, **kwargs):
     if argv or kwargs:
         try:
