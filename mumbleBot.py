@@ -156,7 +156,8 @@ class MumbleBot:
 
         if var.config.get("bot", "when_nobody_in_channel", fallback='') in ['pause', 'pause_resume', 'stop']:
             user_change_callback = \
-                lambda user, action: threading.Thread(target=self.users_changed, args=(user, action), daemon=True).start()
+                lambda user, message_=None: threading.Thread(target=self.users_changed, args=(user, message_), daemon=True).start()
+            self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_USERCREATED, user_change_callback)
             self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_USERREMOVED, user_change_callback)
             self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_USERUPDATED, user_change_callback)
 
@@ -319,23 +320,27 @@ class MumbleBot:
     #         Users changed
     # =======================
 
-    def users_changed(self, user, message):
+    def users_changed(self, user, message_=None):
         own_channel = self.mumble.channels[self.mumble.users.myself['channel_id']]
+        users = {i.get_property("name") for i in own_channel.get_users()}
+        users -= {"IRC", "mumsi", "Music"}
         # only check if there is one more user currently in the channel
         # else when the music is paused and somebody joins, music would start playing again
-        if len(own_channel.get_users()) == 2:
+        if len(users) == 1:
             if var.config.get("bot", "when_nobody_in_channel") == "pause_resume":
                 self.resume()
             elif var.config.get("bot", "when_nobody_in_channel") == "pause":
                 self.send_channel_msg(tr("auto_paused"))
 
-        elif len(own_channel.get_users()) == 1:
+        elif len(users) == 0:
             # if the bot is the only user left in the channel
             self.log.info('bot: Other users in the channel left. Stopping music now.')
 
             if var.config.get("bot", "when_nobody_in_channel") == "stop":
+                self.send_channel_msg("Playing stopped.")
                 self.clear()
             else:
+                self.send_channel_msg("Playing paused.")
                 self.pause()
 
     # =======================
