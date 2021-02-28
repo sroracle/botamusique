@@ -156,10 +156,10 @@ class MumbleBot:
 
         if var.config.get("bot", "when_nobody_in_channel", fallback='') in ['pause', 'pause_resume', 'stop']:
             user_change_callback = \
-                lambda user, message_=None: threading.Thread(target=self.users_changed, args=(user, message_), daemon=True).start()
-            self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_USERCREATED, user_change_callback)
-            self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_USERREMOVED, user_change_callback)
-            self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_USERUPDATED, user_change_callback)
+                lambda join: lambda user, message_=None: threading.Thread(target=self.users_changed, args=(join, user, message_), daemon=True).start()
+            self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_USERCREATED, user_change_callback(True))
+            self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_USERREMOVED, user_change_callback(False))
+            self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_USERUPDATED, user_change_callback(True))
 
         # Debug use
         self._loop_status = 'Idle'
@@ -320,13 +320,13 @@ class MumbleBot:
     #         Users changed
     # =======================
 
-    def users_changed(self, user, message_=None):
+    def users_changed(self, join, user, message_=None):
         own_channel = self.mumble.channels[self.mumble.users.myself['channel_id']]
         users = {i.get_property("name") for i in own_channel.get_users()}
         users -= {"IRC", "mumsi", "Music"}
         # only check if there is one more user currently in the channel
         # else when the music is paused and somebody joins, music would start playing again
-        if len(users) == 1:
+        if len(users) == 1 and join:
             if var.config.get("bot", "when_nobody_in_channel") == "pause_resume":
                 self.resume()
             elif var.config.get("bot", "when_nobody_in_channel") == "pause":
